@@ -43,122 +43,98 @@ myState.state = 1;
 unsubscribe();
 */
 
-// TODO: Add optional overwrite checking
-
-// function getLocalSaves() {
-//    dbRetrieveProjects((indexedProjects) => {
-//       indexedProjects.forEach(indexedProject => {
-//          Object.assign(localProjects[indexedProject.name], indexedProject);
-//       });
-      
-//       localProjects.sort((a,b) => {
-//          b.metadata.lastEdit - a.metadata.lastEdit;
-//       })
-//       font.syncLocalSaves();
-//    })
-// }
-
-let db;
-let localProjects = [];
-
-function initDB() {
-	const request = indexedDB.open('ProjectDB', 1);
-	request.onupgradeneeded = function(event) {
-		db = event.target.result;
-		if (!db.objectStoreNames.contains('projects')) {
-			db.createObjectStore('projects', { keyPath: 'name' });
-		}
-	};
-	request.onsuccess = function(event) {
-		db = event.target.result;
-		console.log('Database initialized successfully.');
-	};
-	request.onerror = function(event) {
-		console.error('Error opening database:', event.target.error);
-	};
+function sfCreateElement(detailsObj) {
+	const sfNewElement = document.createElement(detailsObj.type || 'div');
+	if(detailsObj.class) { sfNewElement.classList.add(...detailsObj.class.split(' ')) }
+	if(detailsObj.text) { sfNewElement.innerText = detailsObj.text }
+	if(detailsObj.parent) { detailsObj.parent.appendChild(sfNewElement) }
+	if(detailsObj.id) { sfNewElement.id = detailsObj.id }
+	return sfNewElement;
 }
 
-function dbStoreProject(projectName, projectData) {
+let localDB;
+let localSaves = {};
+const localDBVersion = new Sfignal(0);
+const localNow = new Date();
 
-	if (!db) {
-		alert('Local saves not possible. Download anything you want to keep!');
-		return;
-	}
-	const transaction = db.transaction(['projects'], 'readwrite');
-	const store = transaction.objectStore('projects');
-	const request = store.get(projectName);
-	request.onsuccess = function(event) {
-		const putRequest = store.put({ name: projectName, data: projectData });
-		putRequest.onsuccess = function() {
-			let updatedProject = localProjects.find(project => project.name == projectName);
-			if (!updatedProject) {
-				updatedProject = {
-					version: new Sfignal(0)
-				}
-				localProjects.push(updatedProject);
+async function openLocalDB() {
+	return new Promise((resolve, reject) => {
+		const request = indexedDB.open('ProjectDB', 1);
+		request.onupgradeneeded = (event) => {
+			if (!event.target.result.objectStoreNames.contains('projects')) {
+				event.target.result.createObjectStore('projects', { keyPath: 'name' });
 			}
-			Object.assign(updatedProject, projectData);
-			updatedProject.version.state++;
-			console.log('Project saved successfully.');
 		};
-		putRequest.onerror = function(event) {
-			alert('Error saving project. Please try again.');
-			console.error('Error saving project:', event.target.error);
+		request.onsuccess = (event) => {
+			localDB = event.target.result;
+			resolve(localDBVersion);
 		};
-	};
-	request.onerror = function(event) {
-		alert('Error checking project. Please try again.');
-		console.error('Error checking project:', event.target.error);
-	};
+		request.onerror = (event) => {
+			reject(event.target.error);
+		};
+	})
 }
 
-function dbDeleteProject(projectName, onSuccess, onError) {
-	if (!confirm(`Delete "${projectName}"?`)) {
-		return;
-	}
-	const transaction = db.transaction(['projects'], 'readwrite');
-	const store = transaction.objectStore('projects');
-	const request = store.delete(projectName);
- 
-	request.onsuccess = () => {
-		// localProjects.forEach((localProject, index) => {
-		// 	if (localProject.name )
-		// })
-		localProjects
-		console.log(`Project "${projectName}" deleted`);
-		if (onSuccess) onSuccess();
-	};
-	
-	request.onerror = () => {
-		console.error(`Error deleting project "${projectName}"`);
-		if (onError) onError();
-	};
+async function getLocalSaves() {
+	return new Promise((resolve, reject) => {
+		const transaction = localDB.transaction(['projects'], 'readonly');
+		const store = transaction.objectStore('projects');
+		const request = store.getAll();
+		request.onsuccess = (event) => {
+			event.target.result.forEach(project => {
+				localSaves[project.name] = {
+					name: project.name,
+					...project.data
+				};
+			})
+			localDBVersion.state++;
+			resolve();
+		};
+		request.onerror = (event) => {
+			reject(event.target.error) 
+		};
+	})
 }
 
-function dbRetrieveProjects() {
-	if (!db) {
-		console.warn('No local projects found.');
-		return;
-	}
-	const transaction = db.transaction(['projects'], 'readonly');
-	const store = transaction.objectStore('projects');
-	const request = store.getAll();
-	request.onsuccess = function(event) {
-		const projects = event.target.result.map(project => ({
-			name: project.name,
-			...project.data,
-			lastEdit: Date.now()
-		}));
-		if (projects && projects.length > 0) {
-			console.log('Projects retrieved successfully.');
-			console.log(projects);
-			// callback(projects);
-		} else {
-			console.warn('No local projects found.');
+async function localSave(projectName, projectData) {
+	return new Promise((resolve, reject) => {
+		if (!localDB) {
+			alert('Local saves not possible. Download anything you want to keep!');
+			reject('Database not connected');
 		}
-	};
-	request.onerror = function(event) {
-		console.warn('Error retrieving local projects.');
-		console.error('Error retrieving projects:', event.target.error);
-	};
+		// projectData.metadata.lastEdit = Date.now();
+		const transaction = localDB.transaction(['projects'], 'readwrite');
+		const store = transaction.objectStore('projects');
+		const putRequest = store.put({ 
+			name: projectName, 
+			data: projectData 
+		});
+		putRequest.onsuccess = () => {
+			localSaves[projectName] = structuredClone(projectData);
+			localDBVersion.state++;
+			resolve();
+		};
+		putRequest.onerror = (event) => {
+			alert('Error saving project. Please try again.');
+			reject(event.target.error);
+		};
+	})
+}
+
+async function localDelete(projectName) {
+	return new Promise((resolve, reject) => {
+		const transaction = localDB.transaction(['projects'], 'readwrite');
+		const store = transaction.objectStore('projects');
+		const request = store.delete(projectName);
+	
+		request.onsuccess = () => {
+			delete localSaves[projectName];
+			localDBVersion.state++;
+			resolve();
+		};
+		
+		request.onerror = () => {
+			reject(`Error deleting project "${projectName}"`);
+		};
+	})
 }

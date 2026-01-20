@@ -295,19 +295,19 @@ input {
 }
 
 .padding-s {
-    padding: var(--gap-s);
+    padding: var(--gap-xs) var(--gap-s);
 }
 
 .padding-m {
-    padding:var(--gap-m);
+    padding:var(--gap-s) var(--gap-m);
 }
 
 .padding-l {
-    padding: var(--gap-l);
+    padding: var(--gap-m) var(--gap-xl);
 }
 
 .padding-xl {
-    padding: var(--gap-xl);
+    padding: var(--gap-l) var(--gap-xl);
 }
 
 @media (hover: hover) {
